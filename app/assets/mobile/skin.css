@@ -1,0 +1,87 @@
+/* Local, reversible Android presentation layer over the official client. */
+html[data-dsh-android]{-webkit-text-size-adjust:100%;text-size-adjust:100%;--dsh-android:1}
+html[data-dsh-android] *{-webkit-tap-highlight-color:transparent}
+html[data-dsh-android] body{overscroll-behavior:none}
+
+@media (max-width:720px){
+  /* Desktop grid tracks otherwise shrink a phone's center to about 80px. */
+  html[data-dsh-android] .BynINW_frame{grid-template-columns:56px minmax(0,1fr) 0!important}
+  html[data-dsh-android] .BynINW_sidebarCol{grid-area:1/1}
+  html[data-dsh-android] .BynINW_centerCol{grid-area:1/2}
+  html[data-dsh-android] .BynINW_rightbarCol{grid-area:1/3}
+  html[data-dsh-android] .BynINW_handle{display:none}
+  html[data-dsh-android] .BynINW_frame:not([data-sidebar-collapsed]) > .BynINW_sidebarCol{
+    position:absolute;inset:0 auto 0 0;width:min(280px,calc(100% - 44px));z-index:19;
+    box-shadow:8px 0 24px #0003;
+  }
+  html[data-dsh-android] .BynINW_frame:not([data-sidebar-collapsed])::after{
+    content:"";position:absolute;inset:0;background:#0004;z-index:18;
+  }
+  html[data-dsh-android] .Dc7zOa_body{
+    --dsh-chat-content-width:calc(100% - 24px);
+    --dsh-composer-card-max-width:100%;
+    --dsh-composer-side-clearance:12px;
+    min-width:0;
+  }
+  html[data-dsh-android] .Dc7zOa_composerHero{padding:16px 0 24px;gap:10px}
+  html[data-dsh-android] .Hqq-bq_root{height:auto;padding:0 20px;flex:none}
+  html[data-dsh-android] .Hqq-bq_stack{gap:12px;min-width:0}
+  html[data-dsh-android] .Hqq-bq_headline{font-size:23px;line-height:30px;gap:8px}
+  html[data-dsh-android] .Hqq-bq_previewBadge{font-size:11px}
+  html[data-dsh-android] .Hqq-bq_body:empty{display:none}
+  html[data-dsh-android] [data-dsh-mobile-art="welcome"]{
+    display:block;align-self:center;flex:none;width:240px;height:160px;
+    max-width:100%;object-fit:contain;pointer-events:none;user-select:none;
+  }
+  html[data-dsh-android] body[data-ds-dark-theme] [data-dsh-mobile-art="welcome"]{filter:brightness(.94) saturate(.94)}
+  html[data-dsh-android] .Hqq-bq_workspace{min-height:44px;max-width:100%}
+  html[data-dsh-android] .RlGAzG_primary{min-width:44px;min-height:44px}
+  html[data-dsh-android] .Dc7zOa_heroWorkspaceRow{padding:0 12px;min-width:0}
+  html[data-dsh-android] .Dc7zOa_header{padding-left:12px;padding-right:12px}
+  html[data-dsh-android] [data-conversation-content] pre{box-sizing:border-box;min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+
+  /* Root listing only: nested empty folders retain the official compact row. */
+  html[data-dsh-android] [data-files-body] > ul > [data-files-row="empty"]{
+    box-sizing:border-box;display:flex;flex-direction:column;align-items:center;
+    padding:24px 12px;text-align:center;color:var(--dsw-alias-label-tertiary);
+  }
+  html[data-dsh-android] [data-files-body] > ul > [data-files-row="empty"]::before{
+    content:"";display:block;flex:none;width:192px;max-width:100%;height:128px;margin:0 auto 12px;
+    background:url('/__dsh_mobile/empty.webp') center/contain no-repeat;pointer-events:none;
+  }
+  html[data-dsh-android] body[data-ds-dark-theme] [data-files-body] > ul > [data-files-row="empty"]::before{filter:brightness(.94) saturate(.94)}
+  html[data-dsh-android] .Woyo-G_row,html[data-dsh-android] .Woyo-G_tool{min-height:44px}
+  html[data-dsh-android] .Woyo-G_tool{min-width:44px}
+
+  /* Official settings: full-height panel with a horizontal scrolling nav. */
+  html[data-dsh-android] .wCInkW_overlay{padding:0!important;align-items:stretch!important}
+  html[data-dsh-android] .wCInkW_panel{
+    flex-direction:column!important;width:100vw!important;max-width:100vw!important;
+    height:100vh!important;max-height:100vh!important;height:100dvh!important;max-height:100dvh!important;
+    border-radius:0!important;box-sizing:border-box!important;
+  }
+  html[data-dsh-android] .wCInkW_nav{
+    width:100%!important;height:auto!important;min-width:0!important;flex-direction:row!important;align-items:center!important;
+    border-right:0!important;border-bottom:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.22))!important;
+    padding:6px 8px!important;flex:0 0 auto!important;box-sizing:border-box!important;
+  }
+  html[data-dsh-android] .wCInkW_navTitle{display:none!important}
+  html[data-dsh-android] .wCInkW_navList{
+    display:flex!important;flex-direction:row!important;overflow-x:auto!important;overflow-y:hidden!important;
+    width:100%!important;min-width:0!important;height:auto!important;gap:6px!important;
+  }
+  html[data-dsh-android] .wCInkW_navList::-webkit-scrollbar{display:none!important}
+  html[data-dsh-android] .wCInkW_navCell{flex:0 0 auto!important;width:auto!important;white-space:nowrap!important;height:44px!important;padding:0 12px!important}
+  html[data-dsh-android] .wCInkW_content{width:100%!important;min-width:0!important;min-height:0!important;flex:1 1 auto!important;box-sizing:border-box!important;overflow:hidden!important}
+  html[data-dsh-android] .wCInkW_options{box-sizing:border-box!important;width:100%!important;min-width:0!important;padding-left:12px!important;padding-right:12px!important;padding-bottom:24px!important}
+  html[data-dsh-android] .wCInkW_header{box-sizing:border-box!important;width:100%!important;padding-left:12px!important}
+}
+/* Keep the composer visible when the keyboard reduces the available height. */
+@media (max-width:720px) and (max-height:540px){
+  html[data-dsh-android] [data-dsh-mobile-art="welcome"]{width:144px;height:96px}
+  html[data-dsh-android] .Dc7zOa_composerHero{padding-top:8px;gap:6px}
+}
+@media (prefers-reduced-motion:reduce){
+  html[data-dsh-android] .Hqq-bq_fish{animation:none!important}
+  html[data-dsh-android] [data-dsh-mobile-art]{animation:none!important;transition:none!important}
+}

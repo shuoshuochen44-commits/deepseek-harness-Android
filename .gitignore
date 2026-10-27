@@ -1,0 +1,15 @@
+/keystore/
+*.jks
+*.keystore
+.env
+.env.*
+*.log
+/build*/
+/dist/
+/node_modules/
+/runtime-asar/
+/runtime-x86/
+/app/jniLibs/
+/app/jniLibs-x86/
+/app/assets/payload.zip
+/app/assets-x86/
