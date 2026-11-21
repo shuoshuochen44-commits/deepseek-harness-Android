@@ -1,7 +1,73 @@
 /* Local, reversible Android presentation layer over the official client. */
-html[data-dsh-android]{-webkit-text-size-adjust:100%;text-size-adjust:100%;--dsh-android:1}
+html[data-dsh-android]{
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  --dsh-android:1;
+  --dsh-m-accent:#4d6bfe;
+  --dsh-m-accent-soft:rgba(77,107,254,.12);
+  --dsh-m-accent-border:rgba(77,107,254,.24);
+  --dsh-m-glow:rgba(77,107,254,.16);
+  --dsh-m-scrim:rgba(6,11,24,.40);
+  --dsh-m-drawer-shadow:0 0 0 1px rgba(77,107,254,.10),12px 0 36px rgba(5,10,25,.20);
+  --dsh-m-card-shadow:0 4px 20px rgba(15,28,64,.06),0 1px 3px rgba(15,28,64,.04);
+  --dsh-m-scroll-thumb:rgba(100,116,139,.28);
+  --dsh-m-ease-out:cubic-bezier(.22,1,.36,1);
+}
+html[data-dsh-android] body[data-ds-dark-theme]{
+  --dsh-m-accent-soft:rgba(77,107,254,.20);
+  --dsh-m-accent-border:rgba(124,160,255,.28);
+  --dsh-m-glow:rgba(77,107,254,.28);
+  --dsh-m-scrim:rgba(2,5,14,.58);
+  --dsh-m-drawer-shadow:0 0 0 1px rgba(124,160,255,.14),14px 0 40px rgba(0,0,0,.52);
+  --dsh-m-card-shadow:0 6px 24px rgba(0,0,0,.28),0 1px 0 rgba(255,255,255,.04) inset;
+  --dsh-m-scroll-thumb:rgba(148,163,184,.26);
+}
 html[data-dsh-android] *{-webkit-tap-highlight-color:transparent}
+html[data-dsh-android] ::selection{background:rgba(77,107,254,.22)}
 html[data-dsh-android] body{overscroll-behavior:none}
+
+/* Eliminate mobile tap delay on interactive controls. */
+html[data-dsh-android] button,
+html[data-dsh-android] a,
+html[data-dsh-android] [role="button"],
+html[data-dsh-android] summary{
+  touch-action:manipulation;
+}
+
+/* Subtle, unobtrusive scrollbars inside WebView. */
+html[data-dsh-android] ::-webkit-scrollbar{width:4px;height:4px}
+html[data-dsh-android] ::-webkit-scrollbar-track{background:transparent}
+html[data-dsh-android] ::-webkit-scrollbar-thumb{
+  background:var(--dsh-m-scroll-thumb);
+  border-radius:999px;
+}
+
+@keyframes dshWhaleFloat{
+  0%,100%{transform:translate3d(0,0,0)}
+  50%{transform:translate3d(0,-5px,0)}
+}
+@keyframes dshDrawerIn{
+  from{transform:translate3d(-22px,0,0);opacity:.92}
+  to{transform:translate3d(0,0,0);opacity:1}
+}
+@keyframes dshScrimIn{
+  from{opacity:0}
+  to{opacity:var(--dsh-scrim-alpha,1)}
+}
+@keyframes dshPanelIn{
+  from{opacity:.86;transform:translate3d(0,12px,0)}
+  to{opacity:1;transform:translate3d(0,0,0)}
+}
+@keyframes dshModalIn{
+  from{opacity:0;transform:translate3d(0,10px,0) scale(.97)}
+  to{opacity:1;transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes dshMenuIn{
+  from{opacity:0;transform:translate3d(0,-4px,0)}
+  to{opacity:1;transform:translate3d(0,0,0)}
+}
 
 @media (max-width:720px){
   /* Desktop grid tracks otherwise shrink a phone's center to about 80px. */
@@ -10,78 +76,292 @@ html[data-dsh-android] body{overscroll-behavior:none}
   html[data-dsh-android] .BynINW_centerCol{grid-area:1/2}
   html[data-dsh-android] .BynINW_rightbarCol{grid-area:1/3}
   html[data-dsh-android] .BynINW_handle{display:none}
+
+  /* Overlay sidebar drawer with soft rounded edge and GPU slide-in. */
   html[data-dsh-android] .BynINW_frame:not([data-sidebar-collapsed]) > .BynINW_sidebarCol{
     position:absolute;inset:0 auto 0 0;width:min(280px,calc(100% - 44px));z-index:19;
-    box-shadow:8px 0 24px #0003;
+    border-radius:0 20px 20px 0;
+    overflow:hidden;
+    box-shadow:var(--dsh-m-drawer-shadow);
+    will-change:transform;
+    animation:dshDrawerIn 220ms var(--dsh-m-ease-out) both;
+  }
+  html[data-dsh-android] .BynINW_frame[data-dsh-dragging="1"] > .BynINW_sidebarCol{
+    animation:none!important;
+    transition:none!important;
+  }
+  html[data-dsh-android] .BynINW_frame[data-dsh-snap="1"] > .BynINW_sidebarCol{
+    animation:none!important;
+    transition:transform 180ms var(--dsh-m-ease-out);
   }
   html[data-dsh-android] .BynINW_frame:not([data-sidebar-collapsed])::after{
-    content:"";position:absolute;inset:0;background:#0004;z-index:18;
+    content:"";position:absolute;inset:0;z-index:18;
+    background:var(--dsh-m-scrim);
+    backdrop-filter:blur(2px);
+    -webkit-backdrop-filter:blur(2px);
+    opacity:var(--dsh-scrim-alpha,1);
+    animation:dshScrimIn 180ms ease-out both;
   }
+  html[data-dsh-android] .BynINW_frame[data-dsh-dragging="1"]::after{
+    animation:none!important;
+    transition:none!important;
+  }
+  html[data-dsh-android] .BynINW_frame[data-dsh-snap="1"]::after{
+    animation:none!important;
+    transition:opacity 180ms ease-out;
+  }
+
+  /* Conversation layout & smooth momentum scrolling. */
   html[data-dsh-android] .Dc7zOa_body{
     --dsh-chat-content-width:calc(100% - 24px);
     --dsh-composer-card-max-width:100%;
     --dsh-composer-side-clearance:12px;
     min-width:0;
   }
+  html[data-dsh-android] .Dc7zOa_scrollBody{
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+  }
   html[data-dsh-android] .Dc7zOa_composerHero{padding:16px 0 24px;gap:10px}
   html[data-dsh-android] .Hqq-bq_root{height:auto;padding:0 20px;flex:none}
   html[data-dsh-android] .Hqq-bq_stack{gap:12px;min-width:0}
-  html[data-dsh-android] .Hqq-bq_headline{font-size:23px;line-height:30px;gap:8px}
-  html[data-dsh-android] .Hqq-bq_previewBadge{font-size:11px}
-  html[data-dsh-android] .Hqq-bq_body:empty{display:none}
-  html[data-dsh-android] [data-dsh-mobile-art="welcome"]{
-    display:block;align-self:center;flex:none;width:240px;height:160px;
-    max-width:100%;object-fit:contain;pointer-events:none;user-select:none;
+  html[data-dsh-android] .Hqq-bq_headline{
+    font-size:23px;line-height:30px;gap:8px;
+    letter-spacing:-.015em;
   }
-  html[data-dsh-android] body[data-ds-dark-theme] [data-dsh-mobile-art="welcome"]{filter:brightness(.94) saturate(.94)}
-  html[data-dsh-android] .Hqq-bq_workspace{min-height:44px;max-width:100%}
-  html[data-dsh-android] .RlGAzG_primary{min-width:44px;min-height:44px}
+  html[data-dsh-android] .Hqq-bq_previewBadge{
+    font-size:11px;
+    border-radius:999px;
+    background:var(--dsh-m-accent-soft);
+    border:1px solid var(--dsh-m-accent-border);
+    padding:2px 8px;
+  }
+  html[data-dsh-android] .Hqq-bq_body:empty{display:none}
+
+  /* Welcome whale-maid mascot: soft halo + gentle GPU float (2px margin prevents sub-pixel rect rounding > 160). */
+  html[data-dsh-android] [data-dsh-mobile-art="welcome"]{
+    display:block;align-self:center;flex:none;width:238px;height:158px;
+    max-width:100%;object-fit:contain;pointer-events:none;user-select:none;
+    filter:drop-shadow(0 10px 20px var(--dsh-m-glow));
+    animation:dshWhaleFloat 4.2s ease-in-out infinite;
+  }
+  html[data-dsh-android] body[data-ds-dark-theme] [data-dsh-mobile-art="welcome"]{
+    filter:brightness(.95) saturate(.96) drop-shadow(0 12px 24px var(--dsh-m-glow));
+  }
+
+  /* Touch-friendly controls with tactile press feedback. */
+  html[data-dsh-android] .Hqq-bq_workspace{
+    min-height:44px;max-width:100%;
+    transition:transform 140ms var(--dsh-m-ease-out),background-color 160ms ease,border-color 160ms ease;
+  }
+  html[data-dsh-android] .Hqq-bq_workspace:active{transform:scale(.97)}
+
+  html[data-dsh-android] .RlGAzG_primary{
+    min-width:44px;min-height:44px;
+    box-shadow:0 4px 14px rgba(77,107,254,.24);
+    transition:transform 130ms var(--dsh-m-ease-out),box-shadow 180ms ease,opacity 160ms ease;
+  }
+  html[data-dsh-android] .RlGAzG_primary:active{
+    transform:scale(.93);
+    box-shadow:0 2px 8px rgba(77,107,254,.18);
+  }
+
+  /* Subtle elevation & focus glow for composer card. */
+  html[data-dsh-android] .Dc7zOa_composerSeat [data-composer-card],
+  html[data-dsh-android] .Dc7zOa_composerSeat form{
+    box-shadow:var(--dsh-m-card-shadow);
+    transition:box-shadow 180ms ease,border-color 180ms ease;
+  }
+  html[data-dsh-android] .Dc7zOa_composerSeat [data-composer-card]:focus-within,
+  html[data-dsh-android] .Dc7zOa_composerSeat form:focus-within{
+    box-shadow:0 0 0 2px var(--dsh-m-accent-soft),var(--dsh-m-card-shadow);
+  }
+
   html[data-dsh-android] .Dc7zOa_heroWorkspaceRow{padding:0 12px;min-width:0}
   html[data-dsh-android] .Dc7zOa_header{padding-left:12px;padding-right:12px}
-  html[data-dsh-android] [data-conversation-content] pre{box-sizing:border-box;min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
 
+  /* Code blocks: clean rounded corners, momentum horizontal scroll, zero page overflow. */
+  html[data-dsh-android] [data-conversation-content] pre{
+    box-sizing:border-box;min-width:0;max-width:100%;
+    overflow-x:auto;overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+    border-radius:12px;
+  }
+
+  /* Files panel & root empty directory artwork. */
+  html[data-dsh-android] [data-files-body]{
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+  }
   /* Root listing only: nested empty folders retain the official compact row. */
   html[data-dsh-android] [data-files-body] > ul > [data-files-row="empty"]{
     box-sizing:border-box;display:flex;flex-direction:column;align-items:center;
-    padding:24px 12px;text-align:center;color:var(--dsw-alias-label-tertiary);
+    padding:28px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);
+    gap:4px;
   }
   html[data-dsh-android] [data-files-body] > ul > [data-files-row="empty"]::before{
-    content:"";display:block;flex:none;width:192px;max-width:100%;height:128px;margin:0 auto 12px;
+    content:"";display:block;flex:none;width:192px;max-width:100%;height:128px;margin:0 auto 10px;
     background:url('/__dsh_mobile/empty.webp') center/contain no-repeat;pointer-events:none;
+    filter:drop-shadow(0 8px 16px var(--dsh-m-glow));
   }
-  html[data-dsh-android] body[data-ds-dark-theme] [data-files-body] > ul > [data-files-row="empty"]::before{filter:brightness(.94) saturate(.94)}
-  html[data-dsh-android] .Woyo-G_row,html[data-dsh-android] .Woyo-G_tool{min-height:44px}
+  html[data-dsh-android] body[data-ds-dark-theme] [data-files-body] > ul > [data-files-row="empty"]::before{
+    filter:brightness(.95) saturate(.96) drop-shadow(0 10px 20px var(--dsh-m-glow));
+  }
+  html[data-dsh-android] .Woyo-G_row,html[data-dsh-android] .Woyo-G_tool{
+    min-height:44px;
+    border-radius:10px;
+    transition:background-color 140ms ease,transform 120ms var(--dsh-m-ease-out);
+  }
   html[data-dsh-android] .Woyo-G_tool{min-width:44px}
+  html[data-dsh-android] .Woyo-G_tool:active{transform:scale(.94)}
 
-  /* Official settings: full-height panel with a horizontal scrolling nav. */
+  /* Official settings: full-height panel with refined horizontal scrolling pill tabs. */
   html[data-dsh-android] .wCInkW_overlay{padding:0!important;align-items:stretch!important}
   html[data-dsh-android] .wCInkW_panel{
     flex-direction:column!important;width:100vw!important;max-width:100vw!important;
     height:100vh!important;max-height:100vh!important;height:100dvh!important;max-height:100dvh!important;
     border-radius:0!important;box-sizing:border-box!important;
+    animation:dshPanelIn 190ms var(--dsh-m-ease-out) both;
   }
   html[data-dsh-android] .wCInkW_nav{
     width:100%!important;height:auto!important;min-width:0!important;flex-direction:row!important;align-items:center!important;
-    border-right:0!important;border-bottom:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.22))!important;
-    padding:6px 8px!important;flex:0 0 auto!important;box-sizing:border-box!important;
+    border-right:0!important;border-bottom:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.20))!important;
+    padding:8px 10px!important;flex:0 0 auto!important;box-sizing:border-box!important;
+    box-shadow:0 2px 10px rgba(15,28,64,.04);
   }
   html[data-dsh-android] .wCInkW_navTitle{display:none!important}
   html[data-dsh-android] .wCInkW_navList{
     display:flex!important;flex-direction:row!important;overflow-x:auto!important;overflow-y:hidden!important;
     width:100%!important;min-width:0!important;height:auto!important;gap:6px!important;
+    overscroll-behavior-x:contain!important;-webkit-overflow-scrolling:touch!important;
+    scroll-snap-type:x proximity!important;scroll-padding-inline:12px!important;
+    padding-right:16px!important;
+    -webkit-mask-image:linear-gradient(to right,#000 0%,#000 calc(100% - 20px),transparent 100%);
+    mask-image:linear-gradient(to right,#000 0%,#000 calc(100% - 20px),transparent 100%);
   }
   html[data-dsh-android] .wCInkW_navList::-webkit-scrollbar{display:none!important}
-  html[data-dsh-android] .wCInkW_navCell{flex:0 0 auto!important;width:auto!important;white-space:nowrap!important;height:44px!important;padding:0 12px!important}
-  html[data-dsh-android] .wCInkW_content{width:100%!important;min-width:0!important;min-height:0!important;flex:1 1 auto!important;box-sizing:border-box!important;overflow:hidden!important}
-  html[data-dsh-android] .wCInkW_options{box-sizing:border-box!important;width:100%!important;min-width:0!important;padding-left:12px!important;padding-right:12px!important;padding-bottom:24px!important}
-  html[data-dsh-android] .wCInkW_header{box-sizing:border-box!important;width:100%!important;padding-left:12px!important}
+  html[data-dsh-android] .wCInkW_navCell{
+    flex:0 0 auto!important;width:auto!important;white-space:nowrap!important;
+    height:44px!important;padding:0 14px!important;
+    border-radius:12px!important;
+    scroll-snap-align:center;
+    transition:background-color 160ms ease,color 160ms ease,transform 130ms var(--dsh-m-ease-out)!important;
+  }
+  html[data-dsh-android] .wCInkW_navCell:active{transform:scale(.96)!important}
+  html[data-dsh-android] .wCInkW_content{
+    width:100%!important;min-width:0!important;min-height:0!important;
+    flex:1 1 auto!important;box-sizing:border-box!important;overflow:hidden!important;
+  }
+  html[data-dsh-android] .wCInkW_options{
+    box-sizing:border-box!important;width:100%!important;min-width:0!important;
+    padding-left:14px!important;padding-right:14px!important;padding-bottom:28px!important;
+    overscroll-behavior-y:contain!important;-webkit-overflow-scrolling:touch!important;
+  }
+  html[data-dsh-android] .wCInkW_header{
+    box-sizing:border-box!important;width:100%!important;
+    padding-left:14px!important;padding-right:10px!important;
+  }
+
+  /* Shared modal dialogs & directory picker mobile refinement. */
+  html[data-dsh-android] ._root_o6lrb_6{
+    padding:12px!important;
+    box-sizing:border-box!important;
+  }
+  html[data-dsh-android] ._dialog_o6lrb_33{
+    border-radius:20px!important;
+    max-width:100%!important;
+    box-shadow:var(--dsh-m-drawer-shadow)!important;
+    animation:dshModalIn 180ms var(--dsh-m-ease-out) both;
+  }
+  html[data-dsh-android] .Fv-y6W_dialog.Fv-y6W_dialog{
+    width:100%!important;
+    height:min(78dvh,560px)!important;
+  }
+  html[data-dsh-android] .Fv-y6W_header{
+    padding:14px 16px 10px!important;
+    gap:6px!important;
+  }
+  html[data-dsh-android] .Fv-y6W_crumbBar{
+    min-height:36px!important;
+    margin-left:-6px!important;
+    padding:0 8px!important;
+  }
+  html[data-dsh-android] .Fv-y6W_content{
+    padding:10px 12px!important;
+  }
+  html[data-dsh-android] .Fv-y6W_millerRow{
+    overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+    scroll-snap-type:x proximity;
+  }
+  html[data-dsh-android] .Fv-y6W_column{
+    min-width:min(240px,86%)!important;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+    gap:4px!important;
+  }
+  html[data-dsh-android] .Fv-y6W_row{
+    min-height:44px!important;
+    height:auto!important;
+    padding:8px 10px!important;
+    border-radius:10px!important;
+    transition:background-color 140ms ease,transform 120ms var(--dsh-m-ease-out);
+  }
+  html[data-dsh-android] .Fv-y6W_row:active{transform:scale(.98)}
+  html[data-dsh-android] .Fv-y6W_footerBar{
+    padding:12px 16px!important;
+    gap:10px 8px!important;
+    justify-content:flex-end!important;
+  }
+  html[data-dsh-android] .Fv-y6W_footerGap{
+    flex:1 0 100%!important;
+    height:0!important;
+    margin:-4px 0!important;
+  }
+  html[data-dsh-android] .Fv-y6W_showHiddenToggle{
+    min-height:38px!important;
+    padding:0 6px!important;
+    margin-left:auto!important;
+  }
+  html[data-dsh-android] .Fv-y6W_footerAction{
+    min-height:40px!important;
+    min-width:84px!important;
+    border-radius:12px!important;
+  }
+
+  /* Floating menus & listboxes: refined elevation & crisp entrance. */
+  html[data-dsh-android] [role="menu"],
+  html[data-dsh-android] [role="listbox"]{
+    border-radius:14px;
+    animation:dshMenuIn 140ms var(--dsh-m-ease-out) both;
+  }
 }
+
 /* Keep the composer visible when the keyboard reduces the available height. */
 @media (max-width:720px) and (max-height:540px){
-  html[data-dsh-android] [data-dsh-mobile-art="welcome"]{width:144px;height:96px}
+  html[data-dsh-android] [data-dsh-mobile-art="welcome"]{
+    width:144px;height:96px;
+    animation:none!important;
+  }
   html[data-dsh-android] .Dc7zOa_composerHero{padding-top:8px;gap:6px}
 }
+
 @media (prefers-reduced-motion:reduce){
   html[data-dsh-android] .Hqq-bq_fish{animation:none!important}
-  html[data-dsh-android] [data-dsh-mobile-art]{animation:none!important;transition:none!important}
+  html[data-dsh-android] [data-dsh-mobile-art],
+  html[data-dsh-android] .BynINW_sidebarCol,
+  html[data-dsh-android] .BynINW_frame::after,
+  html[data-dsh-android] .wCInkW_panel,
+  html[data-dsh-android] .wCInkW_navCell,
+  html[data-dsh-android] .Hqq-bq_workspace,
+  html[data-dsh-android] .RlGAzG_primary,
+  html[data-dsh-android] .Woyo-G_row,
+  html[data-dsh-android] .Woyo-G_tool,
+  html[data-dsh-android] ._dialog_o6lrb_33,
+  html[data-dsh-android] .Fv-y6W_row,
+  html[data-dsh-android] [role="menu"],
+  html[data-dsh-android] [role="listbox"]{
+    animation:none!important;
+    transition:none!important;
+  }
 }

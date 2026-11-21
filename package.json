@@ -1,7 +1,7 @@
 {
   "name": "deepseek-harness-android-mobile-patch",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "scripts": {
     "test": "node --test tests/navigation.test.cjs tests/page-state.test.cjs tests/presentation.test.cjs"
   },

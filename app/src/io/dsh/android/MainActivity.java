@@ -1,7 +1,11 @@
 package io.dsh.android;
 
 import android.annotation.SuppressLint;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.Dialog;
 import android.app.DownloadManager;
@@ -10,10 +14,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -31,12 +39,15 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
-import android.view.animation.LinearInterpolator;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebMessage;
+import android.webkit.WebMessagePort;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceResponse;
@@ -46,7 +57,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Button;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -55,9 +65,8 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Collections;
+import java.util.UUID;
 
 /**
  * 单 Activity 外壳：内嵌 Node 内核 → 本机回环起 dsh web → WebView 加载同一份官方 Web GUI。
@@ -66,22 +75,29 @@ import java.util.Collections;
 public class MainActivity extends Activity {
     private static final String TAG = "DshMain";
     private static final int REQ_FILE_CHOOSER = 0x1001;
-    /** 顶栏 / 启动页底色（近黑，衬托蓝色鲸鱼）。 */
-    private static final int CHROME_BG = 0xFF05070C;
+    /** 启动页深海蓝配色（与蓝色鲸鱼娘主视觉保持一致）。 */
+    private static final int SPLASH_BG_TOP = 0xFF0E1B3D;
+    private static final int SPLASH_BG_MID = 0xFF081024;
+    private static final int SPLASH_BG_BOTTOM = 0xFF050914;
+    private static final int SURFACE_LIGHT = 0xFFFFFFFF;
+    private static final int SURFACE_DARK = 0xFF18181B;
     private static final int ACCENT = 0xFF4D6BFE;
+    private static final int ACCENT_DEEP = 0xFF3655E6;
 
     private WebView web;
-    private LinearLayout root;
-    private LinearLayout header;
-    private ImageButton backButton;
+    private FrameLayout root;
     private FrameLayout content;
     private LinearLayout bootPanel;
+    private LinearLayout bootStatusPill;
     private TextView bootTitle;
+    private TextView bootSubtitle;
     private TextView bootDetail;
     private ImageView splashLogo;
-    private ObjectAnimator splashPulse;
+    private AnimatorSet splashPulse;
+    private AnimatorSet revealAnimator;
     private ProgressBar bootProgress;
     private Button retryButton;
+    private String lastBootDetail;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private ValueCallback<Uri[]> pendingFileChooser;
     private boolean pageLoaded;
@@ -94,6 +110,11 @@ public class MainActivity extends Activity {
     private NodeRuntime.UrlListener runtimeUrlListener;
     private volatile Uri appOrigin;
     private NavBridge navigation;
+    private WebMessagePort themePort;
+    private long themeGeneration;
+    private boolean pageThemeDark;
+    private int pageSurfaceColor;
+    private boolean hasSyncedPageTheme;
 
     /** 页面内是否还有上一级（设置弹窗 / 侧栏面板 / 会话）。 */
     private volatile boolean inAppCanBack;
@@ -147,20 +168,49 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void buildUi() {
-        root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(CHROME_BG);
+    private boolean isSystemDarkTheme() {
+        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+    }
 
-        buildHeader();
+    private int initialWebSurfaceColor() {
+        return isSystemDarkTheme() ? SURFACE_DARK : SURFACE_LIGHT;
+    }
+
+    private Drawable buildStatusPillBackground(boolean error) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(18));
+        bg.setColor(error ? 0x26FF6B6B : 0xCC132040);
+        bg.setStroke(dp(1), error ? 0x55FF8A80 : 0x384D6BFE);
+        return bg;
+    }
+
+    private Drawable buildRetryButtonBackground() {
+        GradientDrawable normal = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[] { ACCENT, ACCENT_DEEP });
+        normal.setCornerRadius(dp(26));
+        GradientDrawable mask = new GradientDrawable();
+        mask.setCornerRadius(dp(26));
+        mask.setColor(Color.WHITE);
+        return new RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), normal, mask);
+    }
+
+    /** 取消原生黑色顶栏，全屏承载 WebView，并由状态栏颜色随页面主题动态融合。 */
+    private void buildUi() {
+        pageThemeDark = isSystemDarkTheme();
+        pageSurfaceColor = initialWebSurfaceColor();
+
+        root = new FrameLayout(this);
+        root.setBackgroundColor(SPLASH_BG_TOP);
 
         content = new FrameLayout(this);
-        content.setBackgroundColor(Color.WHITE);
-        root.addView(content, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        content.setBackgroundColor(pageSurfaceColor);
+        root.addView(content, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         web = new WebView(this);
-        web.setBackgroundColor(Color.WHITE);
+        web.setBackgroundColor(pageSurfaceColor);
         web.setVisibility(View.INVISIBLE);
         content.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -173,123 +223,124 @@ public class MainActivity extends Activity {
         configureWebView();
     }
 
-    /** 自绘顶栏：{返回} + 蓝鲸 + DeepSeek。返回键只在非主界面出现。 */
-    private void buildHeader() {
-        header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setBackgroundColor(CHROME_BG);
-        header.setPadding(dp(4), 0, dp(8), 0);
-        root.addView(header, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
-
-        backButton = new ImageButton(this);
-        backButton.setImageResource(drawable("ic_back"));
-        backButton.setBackgroundColor(Color.TRANSPARENT);
-        backButton.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        backButton.setPadding(dp(13), dp(13), dp(13), dp(13));
-        backButton.setContentDescription("返回");
-        backButton.setVisibility(View.GONE);
-        backButton.setOnClickListener(v -> handleBack());
-        header.addView(backButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
-
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(drawable("ic_whale_blue"));
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(24), dp(24));
-        logoLp.leftMargin = dp(6);
-        header.addView(logo, logoLp);
-
-        TextView title = new TextView(this);
-        title.setText("DeepSeek");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(17f);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            title.setLetterSpacing(0.01f);
-        }
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.leftMargin = dp(8);
-        header.addView(title, titleLp);
-    }
-
-    /** 启动页：脉动鲸鱼 + 转圈 + 阶段文字。 */
+    /** 启动页：深海蓝微光渐变 + 悬浮鲸鱼娘 + 圆角状态胶囊。 */
     private void buildSplash() {
         bootPanel = new LinearLayout(this);
         bootPanel.setOrientation(LinearLayout.VERTICAL);
         bootPanel.setGravity(Gravity.CENTER);
-        bootPanel.setBackgroundColor(CHROME_BG);
-        bootPanel.setPadding(dp(28), dp(28), dp(28), dp(28));
+        bootPanel.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] { SPLASH_BG_TOP, SPLASH_BG_MID, SPLASH_BG_BOTTOM }));
+        bootPanel.setPadding(dp(28), dp(28), dp(28), dp(36));
 
         splashLogo = new ImageView(this);
         splashLogo.setImageResource(drawable("ic_whale_blue"));
         try (java.io.InputStream image = getAssets().open("mobile/welcome.webp")) {
-            splashLogo.setImageBitmap(BitmapFactory.decodeStream(image));
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            Bitmap decoded = BitmapFactory.decodeStream(image, null, opts);
+            if (decoded != null) splashLogo.setImageBitmap(decoded);
         } catch (IOException error) {
             Log.w(TAG, "Welcome mascot unavailable; using brand mark");
         }
         splashLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         splashLogo.setContentDescription("蓝色鲸鱼娘");
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(220), dp(160));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(228), dp(164));
         logoLp.gravity = Gravity.CENTER_HORIZONTAL;
         bootPanel.addView(splashLogo, logoLp);
 
         bootTitle = new TextView(this);
         bootTitle.setText("DeepSeek");
-        bootTitle.setTextColor(Color.WHITE);
-        bootTitle.setTextSize(22f);
+        bootTitle.setTextColor(0xFFF5F8FF);
+        bootTitle.setTextSize(23f);
         bootTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        bootTitle.setLetterSpacing(0.02f);
         bootTitle.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.topMargin = dp(18);
+        titleLp.topMargin = dp(16);
         titleLp.gravity = Gravity.CENTER_HORIZONTAL;
         bootPanel.addView(bootTitle, titleLp);
 
+        bootSubtitle = new TextView(this);
+        bootSubtitle.setText("探索未至之境");
+        bootSubtitle.setTextColor(0xFF7D95BD);
+        bootSubtitle.setTextSize(13f);
+        bootSubtitle.setLetterSpacing(0.06f);
+        bootSubtitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(6);
+        subLp.gravity = Gravity.CENTER_HORIZONTAL;
+        bootPanel.addView(bootSubtitle, subLp);
+
+        bootStatusPill = new LinearLayout(this);
+        bootStatusPill.setOrientation(LinearLayout.HORIZONTAL);
+        bootStatusPill.setGravity(Gravity.CENTER);
+        bootStatusPill.setBackground(buildStatusPillBackground(false));
+        bootStatusPill.setPadding(dp(16), dp(10), dp(16), dp(10));
+        LinearLayout.LayoutParams pillLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pillLp.topMargin = dp(24);
+        pillLp.gravity = Gravity.CENTER_HORIZONTAL;
+        bootPanel.addView(bootStatusPill, pillLp);
+
         ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
         bootProgress = bar;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            bar.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
-        }
-        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(22), dp(22));
-        barLp.topMargin = dp(20);
-        barLp.gravity = Gravity.CENTER_HORIZONTAL;
-        bootPanel.addView(bar, barLp);
+        bar.setIndeterminateTintList(ColorStateList.valueOf(0xFF7DA2FF));
+        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(18), dp(18));
+        barLp.rightMargin = dp(10);
+        bootStatusPill.addView(bar, barLp);
 
         bootDetail = new TextView(this);
         bootDetail.setText("正在启动…");
-        bootDetail.setTextColor(Color.parseColor("#8b98a9"));
+        bootDetail.setTextColor(0xFFB7C7E0);
         bootDetail.setTextSize(12.5f);
         bootDetail.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        detailLp.topMargin = dp(14);
-        detailLp.gravity = Gravity.CENTER_HORIZONTAL;
-        bootPanel.addView(bootDetail, detailLp);
+        bootDetail.setLineSpacing(dp(2), 1f);
+        bootStatusPill.addView(bootDetail, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         retryButton = new Button(this);
         retryButton.setText("重新加载");
         retryButton.setTextColor(Color.WHITE);
-        retryButton.setBackgroundTintList(ColorStateList.valueOf(ACCENT));
+        retryButton.setTextSize(14.5f);
+        retryButton.setTypeface(Typeface.DEFAULT_BOLD);
+        retryButton.setAllCaps(false);
+        retryButton.setBackground(buildRetryButtonBackground());
+        retryButton.setElevation(dp(4));
         retryButton.setMinHeight(dp(48));
         retryButton.setVisibility(View.GONE);
         retryButton.setOnClickListener(v -> retryLoad());
-        LinearLayout.LayoutParams retryLp = new LinearLayout.LayoutParams(dp(160), dp(52));
-        retryLp.topMargin = dp(20);
+        LinearLayout.LayoutParams retryLp = new LinearLayout.LayoutParams(dp(168), dp(48));
+        retryLp.topMargin = dp(22);
+        retryLp.gravity = Gravity.CENTER_HORIZONTAL;
         bootPanel.addView(retryButton, retryLp);
 
         startSplashPulse();
     }
 
+    /** 轻盈悬浮 + 柔和呼吸动效，使用硬件层保证 60fps 流畅度。 */
     private void startSplashPulse() {
-        if (splashLogo == null || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
+        if (splashLogo == null || !ValueAnimator.areAnimatorsEnabled()) {
             return;
         }
-        splashPulse = ObjectAnimator.ofFloat(splashLogo, "alpha", 1f, 0.42f);
-        splashPulse.setDuration(1150);
-        splashPulse.setRepeatCount(ObjectAnimator.INFINITE);
-        splashPulse.setRepeatMode(ObjectAnimator.REVERSE);
-        splashPulse.setInterpolator(new LinearInterpolator());
+        stopSplashPulse();
+        splashLogo.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        ObjectAnimator floatAnim = ObjectAnimator.ofFloat(splashLogo, View.TRANSLATION_Y, 0f, -dp(7));
+        floatAnim.setDuration(1650);
+        floatAnim.setRepeatCount(ValueAnimator.INFINITE);
+        floatAnim.setRepeatMode(ValueAnimator.REVERSE);
+        floatAnim.setInterpolator(new AccelerateDecelerateInterpolator());
+
+        ObjectAnimator breatheAnim = ObjectAnimator.ofFloat(splashLogo, View.ALPHA, 1f, 0.90f);
+        breatheAnim.setDuration(1650);
+        breatheAnim.setRepeatCount(ValueAnimator.INFINITE);
+        breatheAnim.setRepeatMode(ValueAnimator.REVERSE);
+        breatheAnim.setInterpolator(new AccelerateDecelerateInterpolator());
+
+        splashPulse = new AnimatorSet();
+        splashPulse.playTogether(floatAnim, breatheAnim);
         splashPulse.start();
     }
 
@@ -298,6 +349,68 @@ public class MainActivity extends Activity {
             splashPulse.cancel();
             splashPulse = null;
         }
+        if (splashLogo != null) {
+            splashLogo.setTranslationY(0f);
+            splashLogo.setAlpha(1f);
+            splashLogo.setLayerType(View.LAYER_TYPE_NONE, null);
+        }
+    }
+
+    private void cancelRevealAnimation() {
+        if (revealAnimator != null) {
+            revealAnimator.cancel();
+            revealAnimator = null;
+        }
+    }
+
+    /** 启动页到 Web 界面的丝滑交叉淡入转场，并同步状态栏明暗样式。 */
+    private void revealWebView(final WebView view) {
+        cancelRevealAnimation();
+        retryButton.setVisibility(View.GONE);
+        applySystemBarTheme(!pageThemeDark, pageSurfaceColor);
+        if (!ValueAnimator.areAnimatorsEnabled() || bootPanel.getVisibility() != View.VISIBLE) {
+            view.setAlpha(1f);
+            view.setVisibility(View.VISIBLE);
+            bootPanel.setVisibility(View.GONE);
+            bootPanel.setAlpha(1f);
+            bootPanel.setScaleX(1f);
+            bootPanel.setScaleY(1f);
+            return;
+        }
+        view.setAlpha(0f);
+        view.setVisibility(View.VISIBLE);
+        bootPanel.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
+        ObjectAnimator webIn = ObjectAnimator.ofFloat(view, View.ALPHA, 0f, 1f);
+        ObjectAnimator splashOut = ObjectAnimator.ofFloat(bootPanel, View.ALPHA, bootPanel.getAlpha(), 0f);
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(bootPanel, View.SCALE_X, 1f, 1.03f);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(bootPanel, View.SCALE_Y, 1f, 1.03f);
+
+        revealAnimator = new AnimatorSet();
+        revealAnimator.setDuration(220);
+        revealAnimator.setInterpolator(new DecelerateInterpolator());
+        revealAnimator.playTogether(webIn, splashOut, scaleX, scaleY);
+        revealAnimator.addListener(new AnimatorListenerAdapter() {
+            private boolean cancelled;
+
+            @Override
+            public void onAnimationCancel(Animator animation) {
+                cancelled = true;
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                if (revealAnimator == animation) revealAnimator = null;
+                bootPanel.setLayerType(View.LAYER_TYPE_NONE, null);
+                if (destroyed || cancelled) return;
+                bootPanel.setVisibility(View.GONE);
+                bootPanel.setAlpha(1f);
+                bootPanel.setScaleX(1f);
+                bootPanel.setScaleY(1f);
+                view.setAlpha(1f);
+            }
+        });
+        revealAnimator.start();
     }
 
     /** 不走 R.java：资源按名字取，省掉生成 R 的构建步骤。 */
@@ -305,21 +418,119 @@ public class MainActivity extends Activity {
         return getResources().getIdentifier(name, "drawable", getPackageName());
     }
 
+    /** 根据当前显示内容（启动页 / 浅色网页 / 深色网页）同步系统状态栏与导航栏颜色及图标明暗。 */
+    private void applySystemBarTheme(boolean lightSurface, int surfaceColor) {
+        if (destroyed) return;
+        if (root != null) root.setBackgroundColor(surfaceColor);
+        if (content != null && pageState.isReady()) content.setBackgroundColor(surfaceColor);
+        Window window = getWindow();
+        if (window == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController c = window.getInsetsController();
+            if (c != null) {
+                int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                c.setSystemBarsAppearance(lightSurface ? mask : 0, mask);
+            }
+        } else {
+            int flags = 0;
+            if (lightSurface) {
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                }
+            }
+            window.getDecorView().setSystemUiVisibility(flags);
+        }
+    }
+
+    private void closeThemeBridge() {
+        themeGeneration++;
+        if (themePort != null) {
+            try {
+                themePort.close();
+            } catch (RuntimeException ignored) {
+                // 渲染进程销毁后端口可能已关闭
+            }
+            themePort = null;
+        }
+    }
+
+    /** 建立受一次性密钥和同源约束保护的主题同步端口，使无顶栏状态栏与页面明暗实时一致。 */
+    private void installThemeBridge(final WebView view, final Uri origin) {
+        closeThemeBridge();
+        if (destroyed || view == null || origin == null || !isAppUrl(view.getUrl())) return;
+        final long gen = themeGeneration;
+        final Uri target = new Uri.Builder().scheme(origin.getScheme())
+                .encodedAuthority(origin.getEncodedAuthority()).build();
+        final String key = "__dsh_theme_connect__:" + UUID.randomUUID();
+        view.evaluateJavascript(
+                "(function(){if(window.__dshThemeRekey)window.__dshThemeRekey('" + key + "');})()",
+                ignored -> {
+                    if (destroyed || gen != themeGeneration || view != web || !isAppUrl(view.getUrl())) return;
+                    WebMessagePort[] channel = null;
+                    try {
+                        channel = view.createWebMessageChannel();
+                        final WebMessagePort incoming = channel[0];
+                        themePort = incoming;
+                        incoming.setWebMessageCallback(new WebMessagePort.WebMessageCallback() {
+                            @Override
+                            public void onMessage(WebMessagePort port, WebMessage message) {
+                                if (destroyed || gen != themeGeneration || themePort != port) return;
+                                handleThemeMessage(message.getData());
+                            }
+                        });
+                        view.postWebMessage(new WebMessage(key, new WebMessagePort[] { channel[1] }), target);
+                    } catch (RuntimeException error) {
+                        if (channel != null) {
+                            try { channel[0].close(); } catch (RuntimeException ignored2) {}
+                            try { channel[1].close(); } catch (RuntimeException ignored2) {}
+                        }
+                        if (gen == themeGeneration) themePort = null;
+                        Log.w(TAG, "Cannot connect theme channel", error);
+                    }
+                });
+    }
+
+    private void handleThemeMessage(String data) {
+        if (data == null || destroyed) return;
+        final boolean dark;
+        final String hex;
+        if (data.startsWith("dark:")) {
+            dark = true;
+            hex = data.substring(5);
+        } else if (data.startsWith("light:")) {
+            dark = false;
+            hex = data.substring(6);
+        } else {
+            return;
+        }
+        int parsed = dark ? SURFACE_DARK : SURFACE_LIGHT;
+        if (hex.matches("#[0-9a-fA-F]{6}")) {
+            try {
+                parsed = Color.parseColor(hex);
+            } catch (IllegalArgumentException ignored) {
+                // 使用默认兜底色
+            }
+        }
+        final int bgColor = parsed;
+        runOnUiThread(() -> {
+            if (destroyed) return;
+            pageThemeDark = dark;
+            pageSurfaceColor = bgColor;
+            hasSyncedPageTheme = true;
+            if (pageState.isReady()) {
+                applySystemBarTheme(!dark, bgColor);
+            }
+        });
+    }
+
     private void applyEdgeToEdge() {
         Window window = getWindow();
         window.setStatusBarColor(Color.TRANSPARENT);
         window.setNavigationBarColor(Color.TRANSPARENT);
-        // 顶栏是深色的，系统栏图标必须用浅色，否则在浅色系统主题下看不见
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowInsetsController c = window.getInsetsController();
-            if (c != null) {
-                c.setSystemBarsAppearance(0,
-                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                                | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
-            }
-        } else {
-            window.getDecorView().setSystemUiVisibility(0);
-        }
+        // 启动页是深海蓝底色，初始状态栏图标使用白色；页面就绪后随主题自动切换。
+        applySystemBarTheme(false, SPLASH_BG_TOP);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false);
             root.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -351,6 +562,12 @@ public class MainActivity extends Activity {
     }
 
     private void configureWebView() {
+        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        web.setVerticalScrollBarEnabled(false);
+        web.setHorizontalScrollBarEnabled(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        }
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -424,6 +641,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 if (navigation != null) navigation.close();
+                closeThemeBridge();
                 if (!destroyed && url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
                     pageState.begin();
                 }
@@ -448,6 +666,7 @@ public class MainActivity extends Activity {
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
                 if (navigation != null) navigation.close();
+                closeThemeBridge();
                 rendererGone = true;
                 if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
                 view.destroy();
@@ -462,6 +681,7 @@ public class MainActivity extends Activity {
                 if (destroyed || pageState.isFailed()) return;
                 if (isAppUrl(url) && isAppUrl(view.getUrl())) {
                     MobileSkin.apply(view);
+                    installThemeBridge(view, appOrigin);
                     navigation.install(view, appOrigin);
                 } else {
                     onPageCanBack(view.canGoBack());
@@ -472,9 +692,7 @@ public class MainActivity extends Activity {
                 tPageDone = System.currentTimeMillis();
                 ui.removeCallbacks(bootTickerRunnable);
                 stopSplashPulse();
-                view.setVisibility(View.VISIBLE);
-                bootPanel.setVisibility(View.GONE);
-                retryButton.setVisibility(View.GONE);
+                revealWebView(view);
                 if (firstLoad) reportBootTimings();
             }
         });
@@ -552,7 +770,11 @@ public class MainActivity extends Activity {
                 return;
             }
             long secs = (System.currentTimeMillis() - tCreate) / 1000;
-            bootDetail.setText(bootPhase + "\n已用 " + secs + "s");
+            String text = bootPhase + " · " + secs + "s";
+            if (!text.equals(lastBootDetail)) {
+                lastBootDetail = text;
+                bootDetail.setText(text);
+            }
             ui.postDelayed(this, 500);
         }
     };
@@ -718,15 +940,25 @@ public class MainActivity extends Activity {
 
     private void retryLoad() {
         if (destroyed || bootInProgress) return;
+        cancelRevealAnimation();
+        applySystemBarTheme(false, SPLASH_BG_TOP);
+        bootPanel.setAlpha(1f);
+        bootPanel.setScaleX(1f);
+        bootPanel.setScaleY(1f);
         retryButton.setVisibility(View.GONE);
         bootProgress.setVisibility(View.VISIBLE);
         bootTitle.setText("正在重新连接");
-        bootDetail.setTextColor(Color.parseColor("#8b98a9"));
+        bootSubtitle.setVisibility(View.VISIBLE);
+        bootStatusPill.setBackground(buildStatusPillBackground(false));
+        bootDetail.setTextColor(0xFFB7C7E0);
         bootDetail.setTextSize(12.5f);
+        bootDetail.setMaxLines(Integer.MAX_VALUE);
         bootDetail.setTextIsSelectable(false);
+        lastBootDetail = null;
+        startSplashPulse();
         if (rendererGone || web == null) {
             web = new WebView(this);
-            web.setBackgroundColor(Color.WHITE);
+            web.setBackgroundColor(initialWebSurfaceColor());
             web.setVisibility(View.INVISIBLE);
             content.addView(web, 0, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -771,20 +1003,29 @@ public class MainActivity extends Activity {
             if (destroyed || !pageState.fail()) return;
             bootInProgress = false;
             ui.removeCallbacks(bootTickerRunnable);
+            cancelRevealAnimation();
             stopSplashPulse();
+            applySystemBarTheme(false, SPLASH_BG_TOP);
+            bootPanel.setAlpha(1f);
+            bootPanel.setScaleX(1f);
+            bootPanel.setScaleY(1f);
             bootProgress.setVisibility(View.GONE);
             bootPanel.setVisibility(View.VISIBLE);
             if (web != null) web.setVisibility(View.INVISIBLE);
             retryButton.setVisibility(View.VISIBLE);
             bootTitle.setText("暂时无法加载");
+            bootSubtitle.setVisibility(View.GONE);
+            bootStatusPill.setBackground(buildStatusPillBackground(true));
             StringBuilder sb = new StringBuilder(reason);
             String tail = tailOf(logFile, 2400);
             if (tail != null && !tail.isEmpty()) {
                 sb.append("\n\n").append(tail);
             }
+            lastBootDetail = null;
             bootDetail.setText(sb.toString());
-            bootDetail.setTextSize(11f);
-            bootDetail.setTextColor(Color.parseColor("#ff8a80"));
+            bootDetail.setTextSize(11.5f);
+            bootDetail.setMaxLines(14);
+            bootDetail.setTextColor(Color.parseColor("#ff9b93"));
             bootDetail.setTextIsSelectable(true);
         });
     }
@@ -823,25 +1064,16 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
     }
 
-    /** 页面上报：当前是否还有上一级（设置弹窗 / 侧栏面板 / 会话）。 */
+    /** 页面上报：当前是否还有上一级（弹窗 / 菜单 / 设置 / 面板 / 侧栏 / 会话）。 */
     private void onPageCanBack(boolean canBack) {
         if (destroyed) return;
-        if (canBack == inAppCanBack) {
-            return;
-        }
         inAppCanBack = canBack;
-        runOnUiThread(() -> {
-            if (destroyed || backButton == null) {
-                return;
-            }
-            backButton.setVisibility(canBack ? View.VISIBLE : View.GONE);
-        });
     }
 
     /**
-     * 统一返回入口（硬件返回键与顶栏返回键共用）。
+     * 统一返回入口（硬件返回键与系统手势返回共用）。
      *
-     * 顺序：输入法 → 设置弹窗 → 侧栏面板 → 侧栏 → 会话 → 主界面。
+     * 顺序：输入法 → 弹出菜单 → 模态弹窗（选择工作目录/新建文件夹等）→ 设置 → 右栏 → 全局面板 → 左侧栏 → 会话 → 主界面。
      * 交给页面处理时由 __dshBack() 返回 'handled'；回到主界面后返回 'root'，
      * 此时要求连按两次才退回桌面，避免误触退出。
      */
@@ -909,6 +1141,12 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
+        handleBack();
+    }
+
+    @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             handleBack();
@@ -937,8 +1175,10 @@ public class MainActivity extends Activity {
         pageState.destroy();
         NodeRuntime.get(this).clearUrlListener(runtimeUrlListener);
         if (navigation != null) navigation.close();
+        closeThemeBridge();
         if (bootThread != null) bootThread.interrupt();
         ui.removeCallbacksAndMessages(null);
+        cancelRevealAnimation();
         stopSplashPulse();
         if (pendingFileChooser != null) {
             pendingFileChooser.onReceiveValue(null);

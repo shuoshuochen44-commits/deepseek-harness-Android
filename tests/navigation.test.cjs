@@ -267,3 +267,79 @@ test('a new native installation invalidates the previous connection key', async 
   assert.deepEqual(await page.evaluate(() => newKey), ['false']);
 });
 
+test('back closes the directory picker modal instead of leaving the app', async t => {
+  const page = await fixture(t, { home: true });
+  await page.evaluate(() => {
+    const modal = document.createElement('div');
+    modal.className = '_root_o6lrb_6';
+    modal.setAttribute('role', 'presentation');
+    modal.innerHTML = '<div class="_mask_o6lrb_18" aria-hidden="true"></div><div class="_dialog_o6lrb_33 Fv-y6W_dialog" role="dialog" aria-modal="true"><button type="button">取消</button><button type="button">打开</button></div>';
+    modal.querySelector('._mask_o6lrb_18').onclick = () => { clicks.push('directory-picker'); modal.remove(); };
+    document.body.appendChild(modal);
+  });
+  await settle(page);
+  assert.deepEqual(await page.evaluate(() => notifications), [false, true]);
+  assert.equal(await page.evaluate(() => __dshBack()), 'handled');
+  await settle(page);
+  assert.deepEqual(await page.evaluate(() => clicks), ['directory-picker']);
+  assert.deepEqual(await page.evaluate(() => notifications), [false, true, false]);
+  assert.equal(await page.evaluate(() => __dshBack()), 'root');
+});
+
+test('back unwinds floating menus and nested modals in LIFO stack order', async t => {
+  const page = await fixture(t, { home: true });
+  await page.evaluate(() => {
+    const picker = document.createElement('div');
+    picker.className = '_root_o6lrb_6';
+    picker.innerHTML = '<div class="_mask_o6lrb_18" aria-hidden="true"></div><div class="_dialog_o6lrb_33 Fv-y6W_dialog" role="dialog" aria-modal="true"></div>';
+    picker.querySelector('._mask_o6lrb_18').onclick = () => { clicks.push('picker'); picker.remove(); };
+    document.body.appendChild(picker);
+
+    const create = document.createElement('div');
+    create.className = '_root_o6lrb_6';
+    create.innerHTML = '<div class="_mask_o6lrb_18" aria-hidden="true"></div><div class="_dialog_o6lrb_33 Fv-y6W_createDialog" role="dialog" aria-modal="true"><button class="_close_o6lrb_87" aria-label="关闭">X</button></div>';
+    create.querySelector('._close_o6lrb_87').onclick = () => { clicks.push('create-folder'); create.remove(); };
+    document.body.appendChild(create);
+
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    menu.textContent = 'Menu';
+    document.addEventListener('keydown', function onEsc(e) {
+      if (e.key === 'Escape' && menu.isConnected) {
+        clicks.push('menu-esc');
+        menu.remove();
+        document.removeEventListener('keydown', onEsc);
+      }
+    });
+    document.body.appendChild(menu);
+  });
+  await settle(page);
+  assert.equal(await page.evaluate(() => __dshBack()), 'handled');
+  await settle(page);
+  assert.equal(await page.evaluate(() => __dshBack()), 'handled');
+  await settle(page);
+  assert.equal(await page.evaluate(() => __dshBack()), 'handled');
+  await settle(page);
+  assert.equal(await page.evaluate(() => __dshBack()), 'root');
+  assert.deepEqual(await page.evaluate(() => clicks), ['menu-esc', 'create-folder', 'picker']);
+});
+
+test('back closes a modal portaled above settings before closing settings itself', async t => {
+  const page = await fixture(t, { home: true, overlay: true });
+  await page.evaluate(() => {
+    const confirm = document.createElement('div');
+    confirm.className = '_root_o6lrb_6';
+    confirm.innerHTML = '<div class="_mask_o6lrb_18" aria-hidden="true"></div><div class="_dialog_o6lrb_33" role="dialog" aria-modal="true"><button class="_close_o6lrb_87" aria-label="Close">X</button></div>';
+    confirm.querySelector('._close_o6lrb_87').onclick = () => { clicks.push('confirm-modal'); confirm.remove(); };
+    document.body.appendChild(confirm);
+  });
+  await settle(page);
+  assert.equal(await page.evaluate(() => __dshBack()), 'handled');
+  await settle(page);
+  assert.equal(await page.evaluate(() => __dshBack()), 'handled');
+  await settle(page);
+  assert.equal(await page.evaluate(() => __dshBack()), 'root');
+  assert.deepEqual(await page.evaluate(() => clicks), ['confirm-modal', 'settings']);
+});
+
+

@@ -39,6 +39,8 @@ public final class NodeRuntime {
     private volatile boolean stopping;
     /** dsh 启动后打印的带 token 的访问地址；token 由内核随机生成，不能自行拼接。 */
     private volatile String webUrl;
+    /** URL 就绪或进程停止时立即唤醒 waitReady，避免固定轮询空等。 */
+    private final Object readyLock = new Object();
     private static final java.util.regex.Pattern URL_LINE =
             java.util.regex.Pattern.compile("dsh web:\\s*(http://\\S+)");
 
@@ -87,6 +89,9 @@ public final class NodeRuntime {
 
     private void publishUrl(String url) {
         webUrl = url;
+        synchronized (readyLock) {
+            readyLock.notifyAll();
+        }
         UrlListener l = urlListener;
         if (l != null) {
             l.onUrlChanged(url);
@@ -292,6 +297,9 @@ public final class NodeRuntime {
             process.destroy();
             process = null;
         }
+        synchronized (readyLock) {
+            readyLock.notifyAll();
+        }
     }
 
     public static int findFreePort() throws IOException {
@@ -376,8 +384,24 @@ public final class NodeRuntime {
             if (webUrl != null && probe(1500)) {
                 return true;
             }
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) {
+                break;
+            }
+            long waitMs = Math.min(remaining, webUrl == null ? 200L : 120L);
+            synchronized (readyLock) {
+                if (webUrl == null && isRunning()) {
+                    try {
+                        readyLock.wait(waitMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                    continue;
+                }
+            }
             try {
-                Thread.sleep(400);
+                Thread.sleep(waitMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;

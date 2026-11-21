@@ -1,4 +1,4 @@
-# 构建 DSH Android APK（无 Gradle，直接用 build-tools 走 aapt2 / d8 / apksigner）
+﻿# 构建 DSH Android APK（无 Gradle，直接用 build-tools 走 aapt2 / d8 / apksigner）
 #
 # 用法：pwsh -File tools\build-apk.ps1 [-Assets <dir>] [-JniLibs <dir>] [-Out <file>]
 #   前置：tools\package-payload.ps1 已产出 assets\payload.zip
@@ -14,8 +14,8 @@ param(
     [string]$Out = "",
     [string]$BuildSub = "build",
     [switch]$Debuggable,
-    [int]$VersionCode = 3,
-    [string]$VersionName = "0.2.3-mobile"
+    [int]$VersionCode = 4,
+    [string]$VersionName = "0.2.4-mobile"
 )
 
 $ErrorActionPreference = 'Stop'
